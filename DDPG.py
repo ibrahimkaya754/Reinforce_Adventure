@@ -64,7 +64,7 @@ class OUActionNoise:
             self.x_prev = self.x_initial
         else:
             self.x_prev = np.zeros_like(self.mean)
-
+    #OUActionNoise(mean=np.zeros(1), std_deviation=float(0.2) * np.ones(1))
 class Buffer:
     def __init__(self, num_states, num_actions, buffer_capacity=100000, batch_size=64):
         # Number of "experiences" to store at max
@@ -105,10 +105,13 @@ class Agent(Environment):
                       buffer_capacity = 50000, 
                       batch_size      = 64,
                       environment     = None,
-                      numberOfActions = None,
+                      numberOfActions = 1,
                       numberOfStates  = None,
                       upperBound      = None, 
-                      lowerBound      = None):
+                      lowerBound      = None,
+                      savelocation    = os.getcwd()+"/",
+                      loadsavedfile   = False,
+                      disablenoise    = False):
 
         Environment.__init__(self,env=environment, nOfa=numberOfActions,
                                   nOfs=numberOfStates, ub=upperBound, lb=lowerBound)
@@ -120,8 +123,13 @@ class Agent(Environment):
         self.critic_network  = critic_network
         self.gamma           = gamma
         self.tau             = tau
-        self.noise           = OUActionNoise(mean=np.zeros(1), std_deviation=float(0.2) * np.ones(1))
+        self.noise           = np.random.normal(0,0.5)
         self.observation     = (None,None,None,None)
+        self.models          = {}
+        self.savelocation    = savelocation
+        self.loadsavedfile   = loadsavedfile
+        self.disablenoise    = disablenoise
+        self.noisevariance   = (self.upperBound-self.lowerBound)*0.1
 
         self.main_actor_model    = self.get_actor(name='MainActorModel')
         self.target_actor_model  = self.get_actor(name='TargetActorModel')
@@ -130,56 +138,76 @@ class Agent(Environment):
         # Making the weights equal initially
         self.target_actor_model.set_weights(self.main_actor_model.get_weights())
         self.target_critic_model.set_weights(self.main_critic_model.get_weights())
+
+        if self.loadsavedfile:
+            for model in self.models.keys():
+                if not os.path.exists(self.models[model]['model_path']):
+                    print('There is no model saved to the related directory!')
+                else:
+                    print('\n******* loading model file for %s *******\n' % (model))
+                    self.models[model]['model_network'] = load_model(self.models[model]['model_path'])
+            self.main_actor_model.set_weights(self.models['MainActorModel']['model_network'].get_weights())
+            self.target_actor_model.set_weights(self.models['TargetActorModel']['model_network'].get_weights())
+            self.main_critic_model.set_weights(self.models['MainCriticModel']['model_network'].get_weights())
+            self.target_critic_model.set_weights(self.models['TargetCriticModel']['model_network'].get_weights())
         
     def record_buffer(self):
         Buffer.record(self,self.observation)
 
     def get_actor(self,name='Actor'):
-        # Initialize weights between -3e-3 and 3-e3
-        L1_inp  = Input(shape=(self.numberOfStates,),name=name+'_Stateinput')
-        L1      = Dense(self.actor_network['nn'][0], activation=self.actor_network['activation'], kernel_initializer= self.actor_network['initializer'])(L1_inp)
+        model_name              = name
+        self.models[model_name] = {'model_path': self.savelocation + model_name + '.hdf5'}
+        
+        L1_inp  = Input(shape=(self.numberOfStates,),name=model_name+'_Stateinput')
+        L1      = Dense(self.actor_network['nn'][0], activation=self.actor_network['activation'], kernel_initializer= self.actor_network['initializer']())(L1_inp)
         L1      = BatchNormalization()(L1)
         for ii in range(1,len(self.actor_network['nn'])):
-            L1 = Dense(self.actor_network['nn'][ii], activation=self.actor_network['activation'], kernel_initializer= self.actor_network['initializer'])(L1)
+            L1 = Dense(self.actor_network['nn'][ii], activation=self.actor_network['activation'], kernel_initializer= self.actor_network['initializer']())(L1)
             L1 = BatchNormalization()(L1)
-        Lout = Dense(self.numberOfActions, activation="tanh", kernel_initializer=self.actor_network['initializer'])(L1)
-        # Our upper bound is 2.0 for Pendulum.
+        Lout = Dense(self.numberOfActions, activation="tanh", kernel_initializer=self.actor_network['initializer']())(L1)
+        # The output must be limited to upper and lower bounds.
         Lout = Lout * self.upperBound
-        model = Model(L1_inp, Lout)
-        plot_model(model,to_file=name+'.png', show_layer_names=True,show_shapes=True)
-        return model
+        self.models[model_name]['model_network'] = Model(L1_inp, Lout)
+        plot_model(self.models[model_name]['model_network'],to_file=model_name+'.png', show_layer_names=True,show_shapes=True)
+        return self.models[model_name]['model_network']
 
     def get_critic(self,name='Critic'):
-        # State as input
-        L1_state_inp  = Input(shape=(self.numberOfStates,),name=name+'_Stateinput')
-        L1_state      = Dense(self.critic_network['nn'][0], activation=self.critic_network['activation'], kernel_initializer=self.critic_network['initializer'])(L1_state_inp)
+        model_name              = name
+        self.models[model_name] = {'model_path': self.savelocation + model_name + '.hdf5'}
+
+        L1_state_inp  = Input(shape=(self.numberOfStates,),name=model_name+'_Stateinput')
+        L1_state      = Dense(self.critic_network['nn'][0], activation=self.critic_network['activation'], kernel_initializer=self.critic_network['initializer']())(L1_state_inp)
         L1_state      = BatchNormalization()(L1_state)
         for ii in range(1,len(self.critic_network['nn'])):
-            L1_state  = Dense(self.critic_network['nn'][ii], activation=self.critic_network['activation'], kernel_initializer=self.critic_network['initializer'])(L1_state)
+            L1_state  = Dense(self.critic_network['nn'][ii], activation=self.critic_network['activation'], kernel_initializer=self.critic_network['initializer']())(L1_state)
             L1_state  = BatchNormalization()(L1_state)
         # Action as input
         L1_action_inp = Input(shape=(self.numberOfActions),name=name+'_Actioninput')
-        L1_action     = Dense(self.critic_network['concat'][0], activation="relu",kernel_initializer=self.critic_network['initializer'])(L1_action_inp)
+        L1_action     = Dense(self.critic_network['concat'][0], activation="relu",kernel_initializer=self.critic_network['initializer']())(L1_action_inp)
         L1_action     = BatchNormalization()(L1_action)
         # Both are passed through seperate layer before concatenating
         L1            = Concatenate()([L1_state, L1_action])
         for ii in range(1,len(self.critic_network['concat'])):
-            L1        = Dense(self.critic_network['concat'][ii], activation=self.critic_network['activation'],kernel_initializer=self.critic_network['initializer'])(L1)
+            L1        = Dense(self.critic_network['concat'][ii], activation=self.critic_network['activation'],kernel_initializer=self.critic_network['initializer']())(L1)
             L1        = BatchNormalization()(L1)
-        Lout          = Dense(self.numberOfActions,kernel_initializer=self.critic_network['initializer'])(L1)
+        Lout          = Dense(self.numberOfActions,kernel_initializer=self.critic_network['initializer']())(L1)
         # Outputs single value for give state-action
-        model         = Model([L1_state_inp, L1_action_inp], Lout)
-        plot_model(model,to_file=name+'.png', show_layer_names=True,show_shapes=True)
-        return model
+        self.models[model_name]['model_network'] = Model([L1_state_inp, L1_action_inp], Lout)
+        plot_model(self.models[model_name]['model_network'],to_file=name+'.png', show_layer_names=True,show_shapes=True)
+        return self.models[model_name]['model_network']
 
     def policy(self,state):
         sampled_actions = tf.squeeze(self.main_actor_model(state))
-        noise           = self.noise()
-        # Adding noise to action
-        sampled_actions = sampled_actions.numpy() + noise
-        # We make sure action is within bounds
-        legal_action    = np.clip(sampled_actions, self.lowerBound, self.upperBound)
-        self.action     = [np.squeeze(legal_action)]
+        if self.disablenoise:
+            self.noise = np.zeros(1)
+            self.action     = [np.squeeze(np.clip(sampled_actions.numpy(), self.lowerBound, self.upperBound))]
+        else:
+            self.noisevariance = self.noisevariance * 0.999
+            # Adding noise to action
+            self.action = np.random.normal(sampled_actions.numpy(),self.noisevariance)
+            self.noise  = self.action - sampled_actions.numpy()
+            # We make sure action is within bounds
+            self.action     = np.squeeze(np.clip(self.action, self.lowerBound, self.upperBound))
 
         return self.action
 
@@ -227,5 +255,9 @@ class Agent(Environment):
             new_weights.append(variable * self.tau + target_variables[i] * (1 - self.tau))
 
         self.target_actor_model.set_weights(new_weights)
+
+    def save(self):
+        for model in self.models.keys():
+            self.models[model]['model_network'].save(self.models[model]['model_path'])
 
 
