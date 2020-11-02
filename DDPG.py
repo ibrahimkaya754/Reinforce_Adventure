@@ -160,10 +160,10 @@ class Agent(Environment):
         
         L1_inp  = Input(shape=(self.numberOfStates,),name=model_name+'_Stateinput')
         L1      = Dense(self.actor_network['nn'][0], activation=self.actor_network['activation'], kernel_initializer= self.actor_network['initializer']())(L1_inp)
-        L1      = BatchNormalization()(L1)
+        #L1      = BatchNormalization()(L1)
         for ii in range(1,len(self.actor_network['nn'])):
             L1 = Dense(self.actor_network['nn'][ii], activation=self.actor_network['activation'], kernel_initializer= self.actor_network['initializer']())(L1)
-            L1 = BatchNormalization()(L1)
+        #    L1 = BatchNormalization()(L1)
         Lout = Dense(self.numberOfActions, activation="tanh", kernel_initializer=self.actor_network['initializer']())(L1)
         # The output must be limited to upper and lower bounds.
         Lout = Lout * self.upperBound
@@ -177,19 +177,19 @@ class Agent(Environment):
 
         L1_state_inp  = Input(shape=(self.numberOfStates,),name=model_name+'_Stateinput')
         L1_state      = Dense(self.critic_network['nn'][0], activation=self.critic_network['activation'], kernel_initializer=self.critic_network['initializer']())(L1_state_inp)
-        L1_state      = BatchNormalization()(L1_state)
+        #L1_state      = BatchNormalization()(L1_state)
         for ii in range(1,len(self.critic_network['nn'])):
             L1_state  = Dense(self.critic_network['nn'][ii], activation=self.critic_network['activation'], kernel_initializer=self.critic_network['initializer']())(L1_state)
-            L1_state  = BatchNormalization()(L1_state)
+        #    L1_state  = BatchNormalization()(L1_state)
         # Action as input
         L1_action_inp = Input(shape=(self.numberOfActions),name=name+'_Actioninput')
         L1_action     = Dense(self.critic_network['concat'][0], activation="relu",kernel_initializer=self.critic_network['initializer']())(L1_action_inp)
-        L1_action     = BatchNormalization()(L1_action)
+        #L1_action     = BatchNormalization()(L1_action)
         # Both are passed through seperate layer before concatenating
         L1            = Concatenate()([L1_state, L1_action])
         for ii in range(1,len(self.critic_network['concat'])):
             L1        = Dense(self.critic_network['concat'][ii], activation=self.critic_network['activation'],kernel_initializer=self.critic_network['initializer']())(L1)
-            L1        = BatchNormalization()(L1)
+        #    L1        = BatchNormalization()(L1)
         Lout          = Dense(self.numberOfActions,kernel_initializer=self.critic_network['initializer']())(L1)
         # Outputs single value for give state-action
         self.models[model_name]['model_network'] = Model([L1_state_inp, L1_action_inp], Lout)

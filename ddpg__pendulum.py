@@ -8,7 +8,7 @@ ep_reward_list   = [] # To store reward history of each episode
 avg_reward_list  = [] # To store average reward history of last few episodes
 best_reward      = -10e8
 
-myagent = Agent(environment='Pendulum-v0',loadsavedfile=True,disablenoise=True)
+myagent = Agent(environment='Pendulum-v0',loadsavedfile=False,disablenoise=False)
 
 for eps in range(total_episodes):
 
@@ -20,9 +20,9 @@ for eps in range(total_episodes):
         action                        = myagent.policy(state.reshape(1,myagent.numberOfStates))
         nextstate, reward, done, info = myagent.sim.step([action])
         myagent.observation           = (state,action,reward,nextstate)
-        #myagent.record_buffer()
+        myagent.record_buffer()
         episodic_reward               = episodic_reward + reward
-       # myagent.learn()
+        myagent.learn()
         # End this episode when `done` is True
         if done:
             print('noise variance is %.8f' % (myagent.noisevariance))
@@ -39,7 +39,7 @@ for eps in range(total_episodes):
     if avg_reward_list[-1]>best_reward:
         best_reward = avg_reward_list[-1]
         print('saving models')
-        #myagent.save()
+        myagent.save()
     print('-----------------------------------------------------------------')
 # Plotting graph Episodes versus Avg. Rewards
 plt.plot(avg_reward_list)
